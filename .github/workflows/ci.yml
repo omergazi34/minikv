@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - name: Test with the race detector
+        if: runner.os == 'Linux'
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Test
+        if: runner.os != 'Linux'
+        run: go test -count=1 ./...
+      - if: runner.os == 'Linux'
+        run: go tool cover -func=coverage.out | tail -1
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./internal/resp -run '^$' -fuzz=FuzzReadCommand -fuzztime=60s
+      - run: go test ./internal/store -run '^$' -fuzz=FuzzMatch -fuzztime=30s
+
+  # Talk to minikv with the real Redis tools: if redis-cli and redis-benchmark work, the
+  # protocol implementation is compatible in practice, not just against our own client.
+  redis-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y redis-tools
+      - run: go build -o minikv ./cmd/minikv
+      - name: Start minikv with AOF
+        run: |
+          ./minikv -addr 127.0.0.1:6380 -aof /tmp/ci.aof &
+          for _ in $(seq 1 30); do redis-cli -p 6380 PING && break; sleep 0.2; done
+      - name: redis-cli
+        run: |
+          set -e
+          test "$(redis-cli -p 6380 SET greeting hello)" = "OK"
+          test "$(redis-cli -p 6380 GET greeting)" = "hello"
+          test "$(redis-cli -p 6380 INCRBY counter 41)" = "41"
+          redis-cli -p 6380 RPUSH list a b c
+          test "$(redis-cli -p 6380 LRANGE list 0 -1 | tr '\n' ' ')" = "a b c "
+          redis-cli -p 6380 HSET user name ada lang go
+          test "$(redis-cli -p 6380 HGET user name)" = "ada"
+          redis-cli -p 6380 INFO keyspace
+      - name: redis-benchmark
+        run: redis-benchmark -p 6380 -q -n 50000 -c 50 -t ping,set,get,incr,lpush,rpush,lpop,rpop,hset,mset
+      - name: Pipelined redis-benchmark
+        run: redis-benchmark -p 6380 -q -n 200000 -c 50 -P 16 -t set,get
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y redis-tools
+      - run: docker build -t minikv:ci .
+      - name: Data survives a container restart
+        run: |
+          set -e
+          docker volume create minikv-ci
+          docker run -d --name kv -p 6380:6380 -v minikv-ci:/data minikv:ci
+          for _ in $(seq 1 30); do redis-cli -p 6380 PING && break; sleep 0.5; done
+          redis-cli -p 6380 SET persisted yes
+          docker stop kv && docker rm kv
+          docker run -d --name kv -p 6380:6380 -v minikv-ci:/data minikv:ci
+          for _ in $(seq 1 30); do redis-cli -p 6380 PING && break; sleep 0.5; done
+          test "$(redis-cli -p 6380 GET persisted)" = "yes"
+      - if: always()
+        run: docker logs kv || true

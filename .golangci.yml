@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  enable:
+    - errorlint
+    - gocritic
+    - misspell
+    - nolintlint
+    - revive
+    - unconvert
+    - usestdlibvars
+  settings:
+    errcheck:
+      exclude-functions:
+        # Reply/AOF writers are buffered; their errors are sticky and checked on Flush.
+        - (*bufio.Writer).Write
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteString
+        - (*bytes.Buffer).Write
+        - (hash.Hash).Write
+  exclusions:
+    presets:
+      - std-error-handling

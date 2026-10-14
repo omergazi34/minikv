@@ -1,0 +1,6 @@
+.git
+.github
+bin/
+*.aof
+*.exe
+coverage.out
