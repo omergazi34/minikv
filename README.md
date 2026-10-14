@@ -1,6 +1,5 @@
 # minikv
 
-[![CI](https://github.com/omergazi34/minikv/actions/workflows/ci.yml/badge.svg)](https://github.com/omergazi34/minikv/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -9,9 +8,8 @@ A **Redis-compatible key-value server in Go**, written from scratch on the stand
 RESP protocol, a sharded keyspace with TTLs, append-only-file persistence with crash recovery and
 online compaction, group-committed fsync, and graceful shutdown.
 
-Real Redis clients work unchanged. CI runs `redis-cli` and `redis-benchmark` against every commit,
-and the official Python client (redis-py) was checked by hand: pipelining, TTLs, lists, hashes,
-`INFO` parsing and error replies.
+Real Redis clients work unchanged: the official Python client (redis-py) was checked by hand for
+pipelining, TTLs, lists, hashes, `INFO` parsing and error replies.
 
 ```console
 $ minikv -aof appendonly.aof &
@@ -103,7 +101,7 @@ internal/server     TCP server, 51 commands, INFO, AOF integration
 
 ```bash
 go test ./...          # unit + integration over real TCP sockets
-go test -race ./...    # CI runs every test under the race detector
+go test -race ./...    # every test under the race detector (needs cgo)
 make fuzz              # fuzz the RESP parser and the glob matcher
 ```
 
@@ -115,8 +113,8 @@ make fuzz              # fuzz the RESP parser and the glob matcher
 - **Model-based test**: the deque against a plain slice for 20,000 random operations.
 - **Lock discipline**: a transaction that touches a key it didn't declare panics in tests instead of
   becoming a silent data race.
-- **Real clients in CI**: `redis-cli`, `redis-benchmark` (plain and pipelined), and a Docker
-  restart test proving data survives the container.
+- **Real clients**: redis-py by hand. The CI workflow also defines `redis-cli` and
+  `redis-benchmark` (plain and pipelined) jobs and a Docker restart test for data durability.
 
 ## License
 
