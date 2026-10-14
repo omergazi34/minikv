@@ -1,0 +1,7 @@
+/minikv
+/minikv-bench
+*.exe
+*.aof
+*.aof.tmp
+/dist/
+coverage.out
